@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>PadDeck</AssemblyName>
+    <RootNamespace>PadDeck</RootNamespace>
+    <Version>1.0.0</Version>
+    <ApplicationIcon Condition="Exists('app.ico')">app.ico</ApplicationIcon>
+
+    <!-- Keep the footprint small: no globalization data, workstation non-concurrent GC. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- No profile-guided re-JIT: saves ~1.5 MB of instrumentation for code that's never hot anyway. -->
+    <TieredPGO>false</TieredPGO>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!-- Single self-contained exe; no .NET install needed on the target PC. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <!-- Compression would unpack the app into RAM at startup; leave it off. -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetricsSupport>false</MetricsSupport>
+    <StackTraceSupport>true</StackTraceSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="ui\**\*" LogicalName="ui/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>
