@@ -227,15 +227,21 @@ internal sealed class WebServer : IDisposable
                 await Json(s, "{\"config\":" + ConfigStore.Serialize(_engine.Config) +
                               ",\"status\":" + _engine.StatusJson() +
                               ",\"autostart\":" + ((GetAutostart?.Invoke() ?? false) ? "true" : "false") +
-                              ",\"configPath\":" + PadDeck.Json.Str(ConfigStore.FilePath) + "}");
+                              ",\"configPath\":" + PadDeck.Json.Str(ConfigStore.FilePath) +
+                              ",\"revision\":" + _engine.Revision + "}");
                 return;
 
             case ("POST", "/api/config"):
                 Config cfg;
                 try { cfg = ConfigStore.Parse(r.BodyText); }
                 catch (Exception ex) { await Error(s, 400, "Config not saved: " + ex.Message); return; }
-                _engine.Apply(cfg);
-                await Json(s, "{\"ok\":true}");
+                // An editor window sends the revision it loaded; if the layout changed since, its copy is out of date.
+                // A window from an older PadDeck doesn't send one: make it reload rather than trust its copy.
+                if (!r.Headers.TryGetValue("X-Config-Rev", out var rv) || !int.TryParse(rv, out var expected))
+                { await Error(s, 409, "This editor window is out of date: press F5 to reload it"); return; }
+                int rev = _engine.Apply(cfg, expected);
+                if (rev < 0) { await Error(s, 409, "The layout changed in another window"); return; }
+                await Json(s, "{\"ok\":true,\"revision\":" + rev + "}");
                 return;
 
             case ("POST", "/api/press"):

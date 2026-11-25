@@ -46,8 +46,8 @@ function icon(name) {
   return s;
 }
 
-async function api(path, body) {
-  const opts = { headers: { 'X-PadDeck': '1' } };
+async function api(path, body, extraHeaders) {
+  const opts = { headers: { 'X-PadDeck': '1', ...extraHeaders } };
   if (body !== undefined) {
     opts.method = 'POST';
     opts.headers['Content-Type'] = 'application/json';
@@ -57,7 +57,7 @@ async function api(path, body) {
   const text = await r.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* not json */ }
-  if (!r.ok) throw new Error((json && json.error) || r.statusText);
+  if (!r.ok) throw Object.assign(new Error((json && json.error) || r.statusText), { status: r.status });
   return json;
 }
 
@@ -151,13 +151,22 @@ function commit({ rerender = true } = {}) {
 }
 async function saveNow() {
   const json = JSON.stringify(S.cfg);
+  S.saving = true;
   try {
-    await api('/api/config', json);
+    // Sending the revision we loaded makes PadDeck refuse the save if the layout changed since,
+    // so a window left open on an old layout can't wipe a newer one.
+    const res = await api('/api/config', json, S.rev != null ? { 'X-Config-Rev': String(S.rev) } : {});
+    if (res && res.revision != null) S.rev = res.revision;
     S.lastSaved = json;
     setSave('Saved');
     setTimeout(() => { if ($('#save-state').textContent === 'Saved') setSave(''); }, 1600);
   } catch (e) {
-    setSave('Not saved: ' + e.message, 'error');
+    if (e.status === 409) {
+      await load();
+      setSave('The layout was changed elsewhere, so this window reloaded it. Make your last change again.', 'error');
+    } else setSave('Not saved: ' + e.message, 'error');
+  } finally {
+    S.saving = false;
   }
 }
 function undo() {
@@ -1392,6 +1401,10 @@ function connectEvents() {
     let m;
     try { m = JSON.parse(e.data); } catch { return; }
     if (m.type === 'leds') { S.leds = m.c; renderDevice(); }
+    else if (m.type === 'config') {
+      // Someone else (another window, or PadDeck itself) replaced the layout: show theirs, never save over it.
+      if (!S.saving && m.revision !== S.rev) { clearTimeout(saveTimer); load(); }
+    }
     else if (m.type === 'press') {
       flashPad(m.id, m.down);
       if (m.down && $('#follow-press').checked && S.sel !== m.id && !document.querySelector('dialog[open]')) select(m.id);
@@ -1417,6 +1430,7 @@ async function load() {
     S.status = st.status;
     S.autostart = st.autostart;
     S.configPath = st.configPath;
+    S.rev = st.revision;
     S.lastSaved = JSON.stringify(S.cfg);
     render();
   } catch (e) {

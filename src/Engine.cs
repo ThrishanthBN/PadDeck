@@ -85,12 +85,20 @@ internal sealed class Engine : IDisposable
     public Obs Obs => _obs;
     public Audio Audio => _audio;
 
-    public void Apply(Config cfg)
+    int _revision;
+    /// <summary>Goes up every time the whole layout is replaced, so an editor window holding an older copy can't save over a newer one.</summary>
+    public int Revision { get { lock (_sync) return _revision; } }
+
+    /// <summary>Replaces the layout. With <paramref name="expectedRevision"/>, refuses (returns -1) if the layout changed since that revision.</summary>
+    public int Apply(Config cfg, int? expectedRevision = null)
     {
+        int rev;
         lock (_sync)
         {
+            if (expectedRevision is int want && want != _revision) return -1;
             _cfg = cfg;
             _page = Math.Clamp(_page, 0, cfg.Pages.Count - 1);
+            rev = ++_revision;
         }
         ConfigStore.Save(cfg);
         _lastActivity = _clock.ElapsedMilliseconds;
@@ -98,6 +106,8 @@ internal sealed class Engine : IDisposable
         RefreshAutoMixer(true);
         MarkDirty();
         SendStatus();
+        Broadcast?.Invoke($"{{\"type\":\"config\",\"revision\":{rev}}}");
+        return rev;
     }
 
     void ApplyRuntime()
@@ -361,6 +371,10 @@ internal sealed class Engine : IDisposable
                 {
                     float level = (pos - 1) / 7f;
                     var target = fader.Target;
+                    // The app may have no sound open yet (Discord before a call): keep the level and set it
+                    // the moment the app opens its audio, instead of the press doing nothing.
+                    if (!IsSystemTarget(target) && (!_levels.TryGetValue(target, out var known) || known < 0)) _pendingLevels[target] = level;
+                    else _pendingLevels.TryRemove(target, out _);
                     _levels[target] = level;
                     if (level > 0) _mutes[target] = false;
                     _audio.Thread.Post(() => _audio.SetLevel(target, level));
@@ -762,6 +776,13 @@ internal sealed class Engine : IDisposable
                 foreach (var t in mutes) if (!IsSystemTarget(t)) _appTargets.Add(t);
                 foreach (var t in levels) if (!IsSystemTarget(t)) _appTargets.Add(t);
                 _audio.AppStates(_appTargets, _appStates);
+                foreach (var (t, want) in _pendingLevels)
+                {
+                    if (!_appStates.TryGetValue(t, out var now)) continue;        // still no sound open
+                    _audio.SetLevel(t, want);
+                    _appStates[t] = (want, want > 0.001f ? false : now.mute);
+                    _pendingLevels.TryRemove(t, out _);
+                }
                 foreach (var t in levels)
                 {
                     float? v = IsSystemTarget(t) ? _audio.GetLevel(t) : _appStates.TryGetValue(t, out var st) ? st.level : null;
@@ -777,6 +798,9 @@ internal sealed class Engine : IDisposable
             finally { Volatile.Write(ref _pollBusy, 0); }
         });
     }
+
+    /// <summary>Fader levels picked while the app had no sound open; applied when it opens some.</summary>
+    readonly ConcurrentDictionary<string, float> _pendingLevels = new(StringComparer.OrdinalIgnoreCase);
 
     // reused by Poll on the audio thread
     readonly HashSet<string> _appTargets = new(StringComparer.OrdinalIgnoreCase);
@@ -925,8 +949,14 @@ internal sealed class Engine : IDisposable
                     float level = _levels.TryGetValue(fader.Target, out var lv) ? lv : -1;
                     bool muted = _mutes.TryGetValue(fader.Target, out var mu) && mu;
                     uint fc = Hex(fader.Color);
-                    // App has no sound open right now: show the whole track faintly so it still reads as a slider.
-                    if (level < 0) c = Scale(fc, pos == 1 ? 0.14 : 0.05);
+                    // App has no sound open right now: show the level you picked (dimmer, it's waiting for the app),
+                    // or the whole track faintly so it still reads as a slider.
+                    if (level < 0 && _pendingLevels.TryGetValue(fader.Target, out var want))
+                    {
+                        int lit = want <= 0.001f ? 0 : (int)Math.Round(want * 7) + 1;
+                        c = pos <= lit ? Scale(fc, 0.4) : Scale(fc, 0.05);
+                    }
+                    else if (level < 0) c = Scale(fc, pos == 1 ? 0.14 : 0.05);
                     else
                     {
                         int lit = level <= 0.001f ? 0 : (int)Math.Round(level * 7) + 1;

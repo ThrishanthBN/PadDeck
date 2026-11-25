@@ -157,6 +157,23 @@ internal static unsafe partial class AppWindows
         return 1;
     }
 
+    /// <summary>Open editor windows: Edge app windows (no tabs or address bar) titled exactly "PadDeck".</summary>
+    public static List<nint> FindEditors()
+    {
+        var found = new List<nint>();
+        var cache = new Dictionary<uint, (string? exe, string? aumid)>();
+        char* buf = stackalloc char[16];
+        foreach (var h in TopLevel())
+        {
+            int n = GetWindowText(h, buf, 16);
+            if (!new ReadOnlySpan<char>(buf, n).SequenceEqual("PadDeck")) continue;
+            User32.GetWindowThreadProcessId(h, out var pid);
+            var exe = Info(pid, cache).exe;
+            if (exe != null && Path.GetFileName(exe).Equals("msedge.exe", StringComparison.OrdinalIgnoreCase)) found.Add(h);
+        }
+        return found;
+    }
+
     static bool Matches(nint h, Target t, Dictionary<uint, (string? exe, string? aumid)> cache)
     {
         if (t.Aumid != null && string.Equals(WindowAumid(h), t.Aumid, StringComparison.OrdinalIgnoreCase)) return true;
@@ -308,6 +325,7 @@ internal static unsafe partial class AppWindows
     [LibraryImport("user32.dll")] private static partial nint GetWindow(nint h, uint cmd);
     [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static partial long GetWindowLongPtr(nint h, int index);
     [LibraryImport("user32.dll", EntryPoint = "GetWindowTextLengthW")] private static partial int GetWindowTextLength(nint h);
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW")] private static partial int GetWindowText(nint h, char* buf, int max);
     [LibraryImport("user32.dll", EntryPoint = "GetClassNameW")] private static partial int GetClassName(nint h, char* buf, int max);
     [LibraryImport("user32.dll")] private static partial nint GetAncestor(nint h, uint flags);
     [LibraryImport("user32.dll")] private static partial int ShowWindow(nint h, int cmd);

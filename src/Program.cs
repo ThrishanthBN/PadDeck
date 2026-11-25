@@ -77,6 +77,14 @@ internal static unsafe partial class Program
 
     static void OpenEditor(string url)
     {
+        // One editor window: if it's already open, bring it up instead of opening another.
+        try
+        {
+            var open = AppWindows.FindEditors();
+            if (open.Count > 0) { AppWindows.Activate(open[0]); return; }
+        }
+        catch (Exception ex) { Log.Write("find editor: " + ex.Message); }
+
         // Edge "app" window feels like a real app and closes to nothing; fall back to the default browser.
         try { Process.Start(new ProcessStartInfo("msedge", $"--app={url} --window-size=1240,860") { UseShellExecute = true })?.Dispose(); return; }
         catch { }
